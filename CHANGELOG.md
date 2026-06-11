@@ -2,6 +2,50 @@
 
 按时间倒序，最新在最上面。
 
+## Unreleased — 飞书云文档导入
+
+把飞书云文档作为外部日记载体，直接灌进 echolog。
+
+### 新增
+- **`lib/feishu-doc.js`** —— 云文档导入核心库
+  - `parseDocUrl(input)` —— 识别 `https://<tenant>.feishu.cn/docx/<id>` / `/docs/<id>` / `/wiki/<token>` / 裸 `doc_id` 四种输入
+  - `wiki → docx` 自动 resolve：先用 `wiki/v2/spaces/get_node?token=...` 拿 `obj_token`
+  - `fetchDocRaw(docId, tenantToken)` —— 调 `docx/v1/documents/{id}/raw_content` 拉纯文本
+  - `splitByTimestamps(content, defaultDate)` —— 4 级时间戳识别：
+    1. `**HH:MM:SS**` / `**HH:MM**` (粗体，跟现有 raw_logs 同款)
+    2. 行首 `HH:MM:SS` / `HH:MM`
+    3. `YYYY-MM-DD HH:MM[:SS]` (完整 ISO 自身带日期)
+    4. 日期边界识别：`# YYYY-MM-DD` 标题 / `日期: YYYY-MM-DD` 行 / 文首 1500 字符内扫 ISO / 中文日期
+    - 跨日切分：每段找「最近一次出现的日期标记」作 fallback，支持 `# 2026-05-30 ... **HH:MM**` `# 2026-05-31 ... **HH:MM**` 多日合并
+    - 无时间戳的整篇 → 当成 `00:00:00` 一块，自动剥掉开头的日期行
+  - `appendImportBlock(block, sourceDocId)` —— 落 raw_logs 格式：
+    ```
+    **HH:MM:SS**  正文
+    > 📄 [从飞书云文档导入: <doc_id>](<doc_id>)
+    ```
+    每个落档块带来源标记，方便后续溯源 / 批量删
+  - `importDocFromInput({input, tenantToken, defaultDate, onProgress})` —— 总入口
+
+### feishu.js 改造
+- 加 `require('./lib/feishu-doc')`
+- 加 `cmdDocImport(chatId, arg)` 函数：进度回报 + 异常兜底(403 提示去云文档把 bot 加为可读应用)
+- `tryDispatchCommand` 加 `/doc-import` 和 `/import-doc` 两个分支
+- `/help` 帮助页加「飞书云文档导入」段落
+
+### docs/FEISHU_SETUP.md 补充
+- 权限批量导入列表加 `docx:document:readonly` 一行
+- 表格加一行说明该权限的用途
+- 末尾注释「云文档授权」流程：开通权限后还要去云文档里「添加文档应用」加 bot
+
+### 已知前置
+- 飞书 app 需要开通 `docx:document:readonly` 权限并重发版
+- 第一次 import 某份云文档时，文档右上「…」→「…更多」→「添加文档应用」→ 加上 bot
+- 文档作者必须是同租户、有分享权限的账号
+
+### 单元测试覆盖
+- `parseDocUrl` 7 例：docx / wiki / docs / 裸 ID / 错域名 / 空
+- `splitByTimestamps` 5 例：跨日切分 / 无时间戳 / 完整 ISO / 中文日期 / 错格式
+
 ## v0.4.0 (2026-05-28) — Prompt 全配置化
 
 朋友实测反馈后的迭代：把所有写死的 prompt 都抽出来走文件 + GUI 编辑。

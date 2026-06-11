@@ -25,6 +25,7 @@ im:message:send_as_bot
 im:resource
 im:chat
 im:message.reaction:write
+docx:document:readonly
 ```
 
 | 权限 | 干嘛用的 |
@@ -33,6 +34,9 @@ im:message.reaction:write
 | `im:resource` | 下载你发的图片 / 语音 / 文件 / 视频 |
 | `im:chat` | 读会话信息（catchup 补历史用） |
 | `im:message.reaction:write` | 处理完给你的消息打 ✅ 表情当已读标记（失败不影响主流程） |
+| `docx:document:readonly` | `/doc-import` 拉飞书云文档用（基础收发消息不需要） |
+
+> **云文档授权**：开通了 `docx:document:readonly` 后，第一次 import 某份云文档时，还要去该文档 **「…」→「…更多」→「添加文档应用」** 把本 bot 加进去（不然 API 会返 403）。
 
 ## 3. 事件订阅 / Event subscription
 

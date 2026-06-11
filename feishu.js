@@ -42,6 +42,7 @@ const { startIngestServer } = require('./lib/ingest-server');
 const urlEnrich = require('./lib/url-enrich');
 const ratings = require('./lib/ratings');
 const flags = require('./lib/feature-flags');
+const feishuDoc = require('./lib/feishu-doc');
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -918,10 +919,55 @@ async function cmdHelp(chatId) {
     '- `/tasks` —— 今日任务概览（逾期 / 今天 due / 今天已完成）',
     '- 终端执行 `echolog ticktick-auth` —— 一次性授权',
     '',
+    '## 飞书云文档导入',
+    '- `/doc-import <URL 或 doc_id>` —— 拉云文档纯文本，按内部时间戳拆块落到对应日期的 raw_logs（需权限 `docx:document:readonly`）',
+    '',
     '## 其他',
     '- `/help` —— 这个帮助',
   ].join('\n');
   await sendMarkdown(chatId, md, '📒 私密日记 bot 指令', 'green');
+}
+
+// /doc-import <url|doc_id>: 拉飞书云文档按时间戳拆块落 raw_logs + 重建索引
+async function cmdDocImport(chatId, arg) {
+  if (!arg) {
+    return sendMarkdown(chatId,
+      '**用法**：`/doc-import <飞书云文档 URL 或 doc_id>`\n\n' +
+      '支持格式：\n' +
+      '- `https://<tenant>.feishu.cn/docx/<doc_id>`\n' +
+      '- `https://<tenant>.feishu.cn/wiki/<token>` (会自动 resolve 到 doc_id)\n' +
+      '- 裸 doc_id（27 字符，`dox` 开头）\n\n' +
+      '需要飞书应用开通 `docx:document:readonly` 权限，且云文档需要把 bot 加为可读应用。',
+      '📥 doc-import 用法', 'blue');
+  }
+
+  const tenantToken = await getTenantToken();
+  const defaultDate = dayjs().tz('Asia/Shanghai').format('YYYY-MM-DD');
+
+  await sendText(chatId, `📥 拉取云文档…\n${arg}`).catch(() => {});
+
+  try {
+    const result = await feishuDoc.importDocFromInput({
+      input: arg,
+      tenantToken,
+      defaultDate,
+      onProgress: msg => console.log(`[doc-import] ${msg}`),
+    });
+    if (result.reason === 'empty') {
+      return sendText(chatId, '⚠️ 云文档为空,没东西可导入');
+    }
+    const dates = result.affectedDates.map(d => `\`${d}\``).join(', ');
+    const summary =
+      `✅ 导入完成\n` +
+      `- 文档 ID: \`${result.docId}\`\n` +
+      `- 拆出时间块: **${result.totalAppended}**\n` +
+      `- 涉及日期: ${dates || '(无)'}`;
+    await sendMarkdown(chatId, summary, '📥 导入完成', 'green');
+  } catch (err) {
+    const msg = err.friendlyMessage || err.message;
+    console.error('[doc-import] error:', err);
+    await sendText(chatId, `⚠️ 导入失败: ${msg}\n\n如果是 403,大概率是云文档没把 bot 加为可读应用。\n打开文档 → 右上「…」→ 「…更多」→ 「添加文档应用」 → 搜索本 bot 添加。`);
+  }
 }
 
 // 命令分发：返回 true 表示已被命令吞掉，不再走文本归档
@@ -983,6 +1029,11 @@ async function tryDispatchCommand(text, chatId, sendDt) {
   } else if (cmd === '/rate') {
     cmdRate(chatId, arg).catch(err => {
       console.error('[❌ rate]', err);
+      sendText(chatId, `⚠️ ${err.message}`).catch(() => {});
+    });
+  } else if (cmd === '/doc-import' || cmd === '/import-doc') {
+    cmdDocImport(chatId, arg).catch(err => {
+      console.error('[❌ doc-import]', err);
       sendText(chatId, `⚠️ ${err.message}`).catch(() => {});
     });
   } else if (cmd === '/week') {
